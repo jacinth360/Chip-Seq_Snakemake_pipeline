@@ -1,56 +1,119 @@
+sample = ["RUNX1sample", "INPsample"]
+rep = ["rep1", "rep2"]
+number = ['1', '2', '3', '4', 'rev.1', 'rev.2']
+
 rule all:
-	input:
+    input:
+        expand("results/sorted_{sample}_{rep}.bam", sample=sample, rep=rep),
+        expand("results/sorted_{sample}_{rep}.bam.bai", sample=sample , rep=rep),
+        expand("results/flagstat_{sample}_{rep}.txt", sample=sample, rep=rep),
+        expand("results/{sample}_{rep}.bw", sample=sample, rep=rep),
+        "results/multiqc_report.html",
+        "results/multiBigWigSummary_matrix.npz",
+        "results/correlation_heatmap.png"
 
 rule bowtie2_align:
-	input:
-	output:
-	threads: 16
-	params:
-	conda:
-		'envs/bowtie2_env.yml'
-	shell:
+    input:
+        fastq="results/{sample}_{rep}_trimmed.fastq.gz",
+        genome=expand('results/GRCh38.{ext}.bt2', ext=number)
+    output:
+        bam="results/aligned_{sample}_{rep}.bam"
+    threads: 16
+    params:
+        index="results/GRCh38"
+    conda:
+        'envs/bowtie2_env.yml'
+    shell:
+        """
+        bowtie2 -x {params.index} -U {input.fastq} | samtools view -b > {output.bam}
+        """
 
 rule samtools_sort:
-	input:
-	output:
-	conda:
-		'envs/samtools_env.yml'
-	shell:
+    input:
+        bam="results/aligned_{sample}_{rep}.bam"
+    output:
+        sorted_bam="results/sorted_{sample}_{rep}.bam"
+    conda:
+        'envs/samtools_env.yml'
+    shell:
+        """
+        samtools sort -@ 16 -o {output.sorted_bam} {input.bam}
+        """
 
 rule samtools_idx:
-	input:
-	output:
-	conda:
-		'envs/samtools_env.yml'
-	shell:
+    input:
+        bam="results/sorted_{sample}_{rep}.bam"
+    output:
+        bam_index="results/sorted_{sample}_{rep}.bam.bai"
+    conda:
+        'envs/samtools_env.yml'
+    threads: 4
+    shell:
+        """
+        samtools index {input.bam} 
+        """
 
-rule multiqc:
-	input:
-	output:
-	params:
-	conda:
-		'envs/multiqc_env.yml'
-	shell:
+rule samtools_flagstat:
+    input:
+        bam="results/sorted_{sample}_{rep}.bam"
+    output:
+        flagstat="results/flagstat_{sample}_{rep}.txt"
+    conda:
+        'envs/samtools_env.yml'
+    shell:
+        """
+        samtools flagstat {input.bam} > {output.flagstat}
+        """
 
 rule bamCoverage:
-	input:
-	output:
-	threads: 4
-	conda:
-		'envs/deeptools_env.yml'
-	shell:
+    input:
+        bam="results/sorted_{sample}_{rep}.bam"
+    output:
+        bigwig="results/{sample}_{rep}.bw"
+    threads: 4
+    conda:
+        'envs/deeptools_env.yml'
+    shell:
+        """
+        bamCoverage -b {input.bam} -o {output.bigwig}
+        """
 
 rule multiBwSummary:
-	input:
-	output:
-	conda:
-		'envs/deeptools_env.yml'
-	shell:
+    input:
+        bigwigs=expand("results/{sample}_{rep}.bw", sample=sample, rep=rep)
+    output:
+        matrix="results/multiBigWigSummary_matrix.npz"
+    conda:
+        'envs/deeptools_env.yml'
+    shell:
+        """
+        multiBigwigSummary bins -b {input.bigwigs} -o {output.matrix}
+        """
 
 rule plotCorrelation:
-	input:
-	output:
-	params:
-	conda:
-		'envs/deeptools_env.yml'
-	shell:
+    input:
+        matrix="results/multiBigWigSummary_matrix.npz"
+    output:
+        heatmap="results/correlation_heatmap.png"
+    conda:
+        'envs/deeptools_env.yml'
+    shell:
+        """
+        plotCorrelation -in {input.matrix} -c pearson -p heatmap -o {output.heatmap} --plotNumbers
+        """
+
+rule multiqc:
+    input:
+        sorted_bams=expand("results/sorted_{sample}_{rep}.bam", sample=sample , rep=rep), 
+        indices=expand("results/sorted_{sample}_{rep}.bam.bai", sample=sample , rep=rep)
+    output:
+        "results/multiqc_report.html"
+    params:
+        dir= 'results/'
+    conda:
+        'envs/multiqc_env.yml'
+    shell:
+        """
+        multiqc -f {params.dir} --outdir {params.dir}
+        """
+
