@@ -1,18 +1,40 @@
-rule all:
-	input:
+import pandas 
 
+rep = ["rep1", "rep2"]
+
+rule all:
+    input:
+        expand('results/RUNX1sample_{rep}_coverage_plot.pdf', rep=rep),
+        expand("results/RUNX1sample_{rep}_coverage_matrix.gz", rep=rep)
 rule computeMatrix:
-	input:
-	output:
-	params:
-	conda:
-		'envs/deeptools_env.yml'
-	threads: 4
-	shell:
+    input:
+        bw=expand("results/RUNX1sample_{rep}.bw", rep=rep),
+        bed="results/hg38_genes.bed"
+    output:
+        matrix="results/RUNX1sample_{rep}_coverage_matrix.gz"
+    params:
+       
+    conda: "envs/deeptools_env.yml"
+    
+    threads: 4
+    
+    shell:
+        """
+        computeMatrix scale-regions -S {input.bw} -R {input.bed} \
+        --beforeRegionStartLength 2000 --afterRegionStartLength 2000 \
+        -o {output.matrix}
+        """
+
 
 rule plotMatrix:
-	input:
-	output:
-	conda:
-		'envs/deeptools_env.yml'
-	shell:
+    input:
+        matrix="results/RUNX1sample_{rep}_coverage_matrix.gz"
+    output:
+        plot="results/RUNX1sample_{rep}_coverage_plot.pdf"
+    conda:
+        "envs/deeptools_env.yml"
+    shell:
+        """
+        plotProfile -m {input.matrix} -out {output.plot}
+        """
+
